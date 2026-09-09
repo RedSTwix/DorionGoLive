@@ -96,7 +96,8 @@ Dependências de desenvolvimento:
 - Node.js 20 ou posterior para testar o plugin.
 
 ```powershell
-cmake -S src\urban-ipc -B target\urban-ipc -A x64 -DCMAKE_PREFIX_PATH=C:\Qt\6.8.5\msvc2022_64
+$QtRoot = 'C:\Qt\6.8.3\msvc2022_64' # ajuste para a versão Qt 6.8 instalada
+cmake -S src\urban-ipc -B target\urban-ipc -A x64 -DCMAKE_PREFIX_PATH="$QtRoot"
 cmake --build target\urban-ipc --config Release
 Copy-Item target\urban-ipc\bin\urban-ipc.exe src\urban-ipc\urban-ipc.exe
 node --test tests\dorion-plugin.test.mjs

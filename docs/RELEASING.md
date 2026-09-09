@@ -25,7 +25,7 @@
 O job usa um runner `windows-latest` com acesso somente de leitura ao
 repositório. Ele:
 
-1. instala Rust, Node.js e Qt 6.8.5;
+1. instala Rust, Node.js e a versão disponível mais recente do Qt 6.8;
 2. compila `src/urban-ipc/urban-ipc.cpp`;
 3. executa formatação, teste do plugin, testes Rust e Clippy;
 4. compila `dorion-golive.exe` em modo release;

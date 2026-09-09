@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "dorion-golive"
 version = "0.2.8"
 edition = "2021"
