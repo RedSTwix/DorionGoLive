@@ -1,0 +1,124 @@
+name: build-and-release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Validar e compilar (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar Rust estável
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache do Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Qt para o auxiliar UrbanVPN
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.5"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtremoteobjects
+          cache: true
+
+      - name: Compilar auxiliar UrbanVPN
+        shell: pwsh
+        run: |
+          cmake -S src/urban-ipc -B target/urban-ipc -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          cmake --build target/urban-ipc --config Release
+          Copy-Item target/urban-ipc/bin/urban-ipc.exe src/urban-ipc/urban-ipc.exe -Force
+
+      - name: Conferir formatação Rust
+        run: cargo fmt --check
+
+      - name: Testar plugin do Dorion
+        run: node --test tests/dorion-plugin.test.mjs
+
+      - name: Testar serviço e instalador
+        run: cargo test --locked
+
+      - name: Executar Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Compilar em modo release
+        run: cargo build --release --locked
+
+      - name: Validar versão da tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $manifesto = Get-Content -Raw Cargo.toml
+          $versao = [regex]::Match($manifesto, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          if ($env:GITHUB_REF_NAME -ne "v$versao") {
+            throw "A tag $env:GITHUB_REF_NAME não corresponde ao Cargo.toml ($versao)."
+          }
+
+      - name: Preparar artefatos
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/dorion-golive.exe dist/DorionGoLive-Setup.exe
+          $hash = (Get-FileHash -Algorithm SHA256 dist/DorionGoLive-Setup.exe).Hash.ToLowerInvariant()
+          "$hash  DorionGoLive-Setup.exe" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+
+      - name: Armazenar resultado do build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DorionGoLive-windows-x64
+          path: |
+            dist/DorionGoLive-Setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publicar release da tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Baixar artefatos validados
+        uses: actions/download-artifact@v4
+        with:
+          name: DorionGoLive-windows-x64
+          path: dist
+
+      - name: Atestar procedência do executável
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/DorionGoLive-Setup.exe
+
+      - name: Criar release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/DorionGoLive-Setup.exe
+            dist/SHA256SUMS.txt

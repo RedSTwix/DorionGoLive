@@ -1,0 +1,16 @@
+/target
+*.log
+
+# handoff de trabalho, so local
+*.local.md
+
+# saidas de compilacao e configuracao local de editor
+/dist/
+/.release-staging/
+*.obj
+*.pdb
+*.ilk
+/src/urban-ipc/urban-ipc.exe
+/entrega/
+
+/*.exe

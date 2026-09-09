@@ -1,0 +1,32 @@
+﻿[package]
+name = "dorion-golive"
+version = "0.2.8"
+edition = "2021"
+description = "Libera Go Live no Dorion usando uma VPN completa somente durante a negociacao"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+sha2 = "0.10"
+winreg = "0.52"
+windows-sys = { version = "0.59", features = [
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+tauri-winres = "0.3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
