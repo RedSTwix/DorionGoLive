@@ -52,9 +52,9 @@ struct ResultadoFinal {
 pub fn executar() -> Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Dorion GoLive - Instalador")
-        .with_inner_size([760.0, 590.0])
-        .with_min_inner_size([760.0, 590.0])
-        .with_max_inner_size([760.0, 590.0])
+        .with_inner_size([790.0, 630.0])
+        .with_min_inner_size([790.0, 630.0])
+        .with_max_inner_size([790.0, 630.0])
         .with_resizable(false);
     if let Some(icone) = icone_janela() {
         viewport = viewport.with_icon(icone);
@@ -81,6 +81,7 @@ struct Assistente {
     atualizacao: Option<Atualizacao>,
     estados: [EstadoComponente; 4],
     detalhes: [String; 4],
+    progressos_componentes: [Option<f32>; 4],
     progresso: f32,
     resultado: Option<ResultadoFinal>,
     erro: Option<String>,
@@ -101,6 +102,7 @@ impl Assistente {
             atualizacao: None,
             estados: [EstadoComponente::Aguardando; 4],
             detalhes: std::array::from_fn(|_| "Aguardando…".into()),
+            progressos_componentes: [None; 4],
             progresso: 0.0,
             resultado: None,
             erro: None,
@@ -128,6 +130,7 @@ impl Assistente {
         self.progresso = 0.02;
         self.estados = [EstadoComponente::Aguardando; 4];
         self.detalhes = std::array::from_fn(|_| "Aguardando…".into());
+        self.progressos_componentes = [None; 4];
 
         let tx = self.tx.clone();
         std::thread::spawn(move || {
@@ -214,6 +217,8 @@ impl Assistente {
                     let indice = indice(atualizacao.componente);
                     self.estados[indice] = atualizacao.estado;
                     self.detalhes[indice] = atualizacao.detalhe.clone();
+                    self.progressos_componentes[indice] =
+                        progresso_individual(&atualizacao, self.progressos_componentes[indice]);
                     self.progresso = self.progresso.max(atualizacao.progresso);
                     self.atualizacao = Some(atualizacao);
                 }
@@ -406,7 +411,7 @@ impl Assistente {
             {
                 self.tela = Tela::Componentes;
             }
-            if !self.verificando && ui.small_button("Verificar novamente").clicked() {
+            if !self.verificando && botao_secundario(ui, "Verificar novamente").clicked() {
                 self.iniciar_verificacao();
             }
         }) {
@@ -497,7 +502,14 @@ impl Assistente {
             .iter()
             .enumerate()
             {
-                linha_progresso(ui, icone, nome, self.estados[i], &self.detalhes[i]);
+                linha_progresso(
+                    ui,
+                    icone,
+                    nome,
+                    self.estados[i],
+                    &self.detalhes[i],
+                    self.progressos_componentes[i],
+                );
             }
         });
         ui.add_space(16.0);
@@ -521,13 +533,13 @@ impl Assistente {
                     );
                     ui.label(RichText::new(erro).size(12.0).color(TEXTO));
                 });
-            ui.horizontal(|ui| {
+            rodape_direita(ui, |ui| {
+                if botao_primario(ui, "Tentar novamente").clicked() {
+                    self.iniciar_instalacao();
+                }
                 if botao_secundario(ui, "Voltar aos componentes").clicked() {
                     self.erro = None;
                     self.tela = Tela::Componentes;
-                }
-                if botao_primario(ui, "Tentar novamente").clicked() {
-                    self.iniciar_instalacao();
                 }
             });
         } else {
@@ -562,20 +574,19 @@ impl Assistente {
             ui.add_space(10.0);
             ui.colored_label(VERDE, mensagem);
         }
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
+        rodape_direita(ui, |ui| {
+            if botao_secundario(ui, "Concluir").clicked() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            if botao_secundario(ui, "Ver dicas rápidas").clicked() {
+                self.tela = Tela::Ajuda;
+            }
             if botao_primario(ui, "Iniciar Dorion agora").clicked() {
                 self.mensagem_final = Some(match crate::discord::reiniciar() {
                     Ok(true) => "Dorion iniciado com o plugin configurado.".into(),
                     Ok(false) => "O Dorion não foi encontrado na validação de abertura.".into(),
                     Err(erro) => format!("Não foi possível abrir o Dorion: {erro}"),
                 });
-            }
-            if botao_secundario(ui, "Ver dicas rápidas").clicked() {
-                self.tela = Tela::Ajuda;
-            }
-            if botao_secundario(ui, "Concluir").clicked() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
         });
     }
@@ -616,7 +627,7 @@ impl Assistente {
 impl eframe::App for Assistente {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        ui.set_min_size(ui.available_size());
+        let tamanho_disponivel = ui.available_size();
         self.receber_mensagens();
         ctx.request_repaint_after(Duration::from_millis(100));
         if self.instalando && ctx.input(|i| i.viewport().close_requested()) {
@@ -625,8 +636,12 @@ impl eframe::App for Assistente {
 
         egui::Frame::new()
             .fill(FUNDO)
-            .inner_margin(22)
+            .inner_margin(egui::Margin::symmetric(26, 20))
             .show(ui, |ui| {
+                ui.set_min_size(Vec2::new(
+                    (tamanho_disponivel.x - 52.0).max(0.0),
+                    (tamanho_disponivel.y - 40.0).max(0.0),
+                ));
                 self.desenhar_topo(ui);
                 self.desenhar_passos(ui);
                 match self.tela {
@@ -654,8 +669,12 @@ fn configurar_estilo(ctx: &egui::Context) {
     estilo.visuals.widgets.hovered.bg_fill = Color32::from_rgb(39, 49, 65);
     estilo.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ROXO_CLARO);
     estilo.visuals.widgets.active.bg_fill = ROXO;
+    estilo.visuals.widgets.active.bg_stroke = Stroke::new(1.0, ROXO_CLARO);
+    estilo.visuals.widgets.noninteractive.bg_fill = PAINEL;
+    estilo.visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDA);
+    estilo.visuals.selection.bg_fill = ROXO;
     estilo.spacing.item_spacing = Vec2::new(10.0, 8.0);
-    estilo.spacing.button_padding = Vec2::new(18.0, 10.0);
+    estilo.spacing.button_padding = Vec2::new(20.0, 11.0);
     ctx.set_style_of(egui::Theme::Dark, estilo);
 }
 
@@ -680,12 +699,16 @@ fn titulo(ui: &mut egui::Ui, principal: &str, subtitulo: &str) {
 }
 
 fn cartao(ui: &mut egui::Ui, conteudo: impl FnOnce(&mut egui::Ui)) {
+    let largura_interna = (ui.available_width() - 36.0).max(0.0);
     egui::Frame::new()
         .fill(CARTAO)
         .stroke(Stroke::new(1.0, BORDA))
-        .corner_radius(CornerRadius::same(10))
-        .inner_margin(16)
-        .show(ui, conteudo);
+        .corner_radius(CornerRadius::same(12))
+        .inner_margin(18)
+        .show(ui, |ui| {
+            ui.set_min_width(largura_interna);
+            conteudo(ui);
+        });
 }
 
 fn desenhar_logo(ui: &mut egui::Ui, tamanho: f32) {
@@ -733,19 +756,17 @@ fn desenhar_logo(ui: &mut egui::Ui, tamanho: f32) {
 
 fn item_beneficio(ui: &mut egui::Ui, icone: &str, texto: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(icone).size(19.0).color(ROXO_CLARO));
+        desenhar_badge(ui, icone, ROXO_CLARO);
+        ui.add_space(3.0);
         ui.label(RichText::new(texto).size(15.0).color(TEXTO));
     });
-    ui.add_space(4.0);
+    ui.add_space(5.0);
 }
 
 fn linha_requisito(ui: &mut egui::Ui, icone: &str, nome: &str, detalhe: &str, ok: bool) {
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(icone)
-                .size(21.0)
-                .color(if ok { TEXTO } else { VERMELHO }),
-        );
+        desenhar_badge(ui, icone, if ok { ROXO_CLARO } else { VERMELHO });
+        ui.add_space(3.0);
         ui.vertical(|ui| {
             ui.label(RichText::new(nome).size(14.0).strong().color(TEXTO));
             ui.label(RichText::new(detalhe).size(11.0).color(SECUNDARIO));
@@ -763,8 +784,8 @@ fn linha_requisito(ui: &mut egui::Ui, icone: &str, nome: &str, detalhe: &str, ok
 
 fn linha_componente(ui: &mut egui::Ui, icone: &str, nome: &str, detalhe: &str, instalado: bool) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("ON").size(11.0).strong().color(ROXO_CLARO));
-        ui.label(RichText::new(icone).size(22.0).color(ROXO_CLARO));
+        desenhar_badge(ui, icone, ROXO_CLARO);
+        ui.add_space(3.0);
         ui.vertical(|ui| {
             ui.label(RichText::new(nome).size(14.0).strong().color(TEXTO));
             ui.label(RichText::new(detalhe).size(11.0).color(SECUNDARIO));
@@ -790,12 +811,26 @@ fn linha_progresso(
     nome: &str,
     estado: EstadoComponente,
     detalhe: &str,
+    progresso: Option<f32>,
 ) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(icone).size(22.0).color(ROXO_CLARO));
+        desenhar_badge(ui, icone, ROXO_CLARO);
+        ui.add_space(3.0);
         ui.vertical(|ui| {
             ui.label(RichText::new(nome).size(14.0).strong().color(TEXTO));
             ui.label(RichText::new(detalhe).size(11.0).color(SECUNDARIO));
+            if estado == EstadoComponente::Baixando {
+                let valor = progresso.unwrap_or_else(|| {
+                    let tempo = ui.input(|entrada| entrada.time) as f32;
+                    0.18 + (tempo * 0.55).sin().abs() * 0.66
+                });
+                ui.add(
+                    egui::ProgressBar::new(valor)
+                        .desired_width(330.0)
+                        .desired_height(6.0)
+                        .fill(ROXO),
+                );
+            }
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| match estado {
             EstadoComponente::Concluido => {
@@ -803,6 +838,14 @@ fn linha_progresso(
             }
             EstadoComponente::Aguardando => {
                 ui.label(RichText::new("--").size(13.0).color(SECUNDARIO));
+            }
+            EstadoComponente::Baixando if progresso.is_some() => {
+                ui.label(
+                    RichText::new(format!("{:.0}%", progresso.unwrap_or_default() * 100.0))
+                        .size(12.0)
+                        .strong()
+                        .color(ROXO_CLARO),
+                );
             }
             _ => {
                 ui.spinner();
@@ -826,7 +869,8 @@ fn linha_resultado(ui: &mut egui::Ui, texto: &str, ok: bool) {
 
 fn dica(ui: &mut egui::Ui, icone: &str, nome: &str, detalhe: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(icone).size(23.0).color(ROXO_CLARO));
+        desenhar_badge(ui, icone, ROXO_CLARO);
+        ui.add_space(3.0);
         ui.vertical(|ui| {
             ui.label(RichText::new(nome).size(14.0).strong().color(TEXTO));
             ui.label(RichText::new(detalhe).size(12.0).color(SECUNDARIO));
@@ -839,8 +883,8 @@ fn botao_widget(texto: &str) -> egui::Button<'_> {
     egui::Button::new(RichText::new(texto).strong().color(Color32::WHITE))
         .fill(ROXO)
         .stroke(Stroke::new(1.0, ROXO_CLARO))
-        .corner_radius(7)
-        .min_size(Vec2::new(130.0, 38.0))
+        .corner_radius(9)
+        .min_size(Vec2::new(136.0, 42.0))
 }
 
 fn botao_primario(ui: &mut egui::Ui, texto: &str) -> egui::Response {
@@ -852,26 +896,47 @@ fn botao_secundario(ui: &mut egui::Ui, texto: &str) -> egui::Response {
         egui::Button::new(RichText::new(texto).strong().color(TEXTO))
             .fill(PAINEL)
             .stroke(Stroke::new(1.0, BORDA))
-            .corner_radius(7)
-            .min_size(Vec2::new(120.0, 38.0)),
+            .corner_radius(9)
+            .min_size(Vec2::new(126.0, 42.0)),
     )
 }
 
 fn rodape_direita(ui: &mut egui::Ui, conteudo: impl FnOnce(&mut egui::Ui)) {
-    ui.with_layout(Layout::right_to_left(Align::Center), conteudo);
+    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+        ui.add_space(12.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), conteudo);
+    });
 }
 
 fn rodape_duplo(ui: &mut egui::Ui, voltar: &str, direita: impl FnOnce(&mut egui::Ui)) -> bool {
     let mut clicou_voltar = false;
     ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             if botao_secundario(ui, voltar).clicked() {
                 clicou_voltar = true;
             }
             ui.with_layout(Layout::right_to_left(Align::Center), direita);
         });
+        ui.add_space(8.0);
+        ui.separator();
     });
     clicou_voltar
+}
+
+fn desenhar_badge(ui: &mut egui::Ui, texto: &str, cor: Color32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(28.0), egui::Sense::hover());
+    ui.painter()
+        .rect_filled(rect, 8.0, Color32::from_rgb(39, 31, 61));
+    ui.painter()
+        .rect_stroke(rect, 8.0, Stroke::new(1.0, cor), egui::StrokeKind::Inside);
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        texto,
+        FontId::proportional(13.0),
+        cor,
+    );
 }
 
 fn enviar_progresso(
@@ -898,10 +963,53 @@ fn indice(componente: Componente) -> usize {
     }
 }
 
+fn progresso_individual(atualizacao: &Atualizacao, anterior: Option<f32>) -> Option<f32> {
+    match (atualizacao.componente, atualizacao.estado) {
+        (Componente::Dorion, EstadoComponente::Baixando) => {
+            Some(((atualizacao.progresso - 0.10) / 0.16).clamp(0.0, 1.0))
+        }
+        (_, EstadoComponente::Concluido) => Some(1.0),
+        (_, EstadoComponente::Validando | EstadoComponente::Instalando) => {
+            Some(anterior.unwrap_or(1.0))
+        }
+        _ => anterior,
+    }
+}
+
 fn sim_nao(valor: bool) -> &'static str {
     if valor {
         "sim"
     } else {
         "não"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converte_o_download_real_do_dorion_em_progresso_individual() {
+        let atualizacao = Atualizacao {
+            componente: Componente::Dorion,
+            estado: EstadoComponente::Baixando,
+            detalhe: String::new(),
+            progresso: 0.18,
+        };
+
+        let progresso = progresso_individual(&atualizacao, None).expect("progresso conhecido");
+        assert!((progresso - 0.5).abs() < f32::EPSILON * 2.0);
+    }
+
+    #[test]
+    fn conclusao_marca_o_componente_como_completo() {
+        let atualizacao = Atualizacao {
+            componente: Componente::UrbanVpn,
+            estado: EstadoComponente::Concluido,
+            detalhe: String::new(),
+            progresso: 0.74,
+        };
+
+        assert_eq!(progresso_individual(&atualizacao, None), Some(1.0));
     }
 }
