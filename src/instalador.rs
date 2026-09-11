@@ -18,7 +18,7 @@ use std::{
 };
 
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use std::os::windows::{ffi::OsStrExt, process::CommandExt};
 
 const API_DORION: &str = "https://api.github.com/repos/SpikeHD/Dorion/releases/latest";
 const PREFIXO_DORION: &str = "https://github.com/SpikeHD/Dorion/releases/download/";
@@ -307,6 +307,12 @@ fn instalar_urban(pasta: &Path, relatar: &mut impl FnMut(Atualizacao)) -> Result
             0.46,
         ));
     })?;
+    let tamanho_baixado = instalador.metadata().map(|m| m.len()).unwrap_or_default();
+    let hash_baixado = sha256(&instalador).context("calculando o SHA-256 do UrbanVPN baixado")?;
+    crate::log::linha(&format!(
+        "UrbanVPN baixado: {tamanho_baixado} bytes; SHA-256 {hash_baixado}; arquivo {}",
+        instalador.display()
+    ));
     relatar(atualizacao(
         Componente::UrbanVpn,
         EstadoComponente::Validando,
@@ -432,24 +438,126 @@ fn sha256(caminho: &Path) -> Result<String> {
 }
 
 fn validar_assinatura_urban(caminho: &Path) -> Result<()> {
-    const VERIFICAR: &str = r#"
-$assinatura = Get-AuthenticodeSignature -LiteralPath $env:DORION_GOLIVE_SIGNATURE_FILE
-if ($assinatura.Status -ne 'Valid') { exit 10 }
-if ($assinatura.SignerCertificate.Subject -notmatch 'Urban Cyber Security Inc\.') { exit 11 }
-exit 0
-"#;
-    let powershell = ferramenta_sistema(r"WindowsPowerShell\v1.0\powershell.exe")?;
-    let status = comando_oculto(powershell)
-        .args(["-NoProfile", "-NonInteractive", "-Command", VERIFICAR])
-        .env("DORION_GOLIVE_SIGNATURE_FILE", caminho)
-        .status()
-        .context("validando a assinatura digital do instalador UrbanVPN")?;
-    if !status.success() {
-        bail!(
-            "o instalador UrbanVPN não possui assinatura válida da Urban Cyber Security Inc. ({status})"
-        );
+    #[cfg(windows)]
+    {
+        validar_assinatura_windows(caminho)
     }
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        let _ = caminho;
+        bail!("a assinatura Authenticode só pode ser validada no Windows")
+    }
+}
+
+#[cfg(windows)]
+fn validar_assinatura_windows(caminho: &Path) -> Result<()> {
+    use windows_sys::Win32::Security::{
+        Cryptography::{CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE},
+        WinTrust::{
+            WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain,
+            WTHelperProvDataFromStateData, WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2,
+            WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_REVOKE_NONE,
+            WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UICONTEXT_INSTALL, WTD_UI_NONE,
+        },
+    };
+
+    let caminho_wide: Vec<u16> = caminho.as_os_str().encode_wide().chain(Some(0)).collect();
+
+    // SAFETY: as estruturas seguem o contrato do WinVerifyTrust; os ponteiros
+    // apontam para dados vivos durante toda a chamada e o estado é fechado.
+    unsafe {
+        let mut arquivo: WINTRUST_FILE_INFO = std::mem::zeroed();
+        arquivo.cbStruct = std::mem::size_of::<WINTRUST_FILE_INFO>() as u32;
+        arquivo.pcwszFilePath = caminho_wide.as_ptr();
+
+        let mut dados: WINTRUST_DATA = std::mem::zeroed();
+        dados.cbStruct = std::mem::size_of::<WINTRUST_DATA>() as u32;
+        dados.dwUIChoice = WTD_UI_NONE;
+        dados.fdwRevocationChecks = WTD_REVOKE_NONE;
+        dados.dwUnionChoice = WTD_CHOICE_FILE;
+        dados.Anonymous.pFile = &mut arquivo;
+        dados.dwStateAction = WTD_STATEACTION_VERIFY;
+        dados.dwUIContext = WTD_UICONTEXT_INSTALL;
+
+        let mut acao = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+        let status = WinVerifyTrust(
+            std::ptr::null_mut(),
+            &mut acao,
+            &mut dados as *mut WINTRUST_DATA as *mut std::ffi::c_void,
+        );
+
+        let resultado = if status != 0 {
+            Err(anyhow::anyhow!(
+                "a assinatura Authenticode não é confiável (0x{:08x})",
+                status as u32
+            ))
+        } else {
+            let provedor = WTHelperProvDataFromStateData(dados.hWVTStateData);
+            let assinante = if provedor.is_null() {
+                std::ptr::null_mut()
+            } else {
+                WTHelperGetProvSignerFromChain(provedor, 0, 0, 0)
+            };
+            let certificado = if assinante.is_null() {
+                std::ptr::null_mut()
+            } else {
+                WTHelperGetProvCertFromChain(assinante, 0)
+            };
+
+            if certificado.is_null() || (*certificado).pCert.is_null() {
+                Err(anyhow::anyhow!(
+                    "o Windows validou a assinatura, mas não informou o publicador"
+                ))
+            } else {
+                let contexto = (*certificado).pCert;
+                let tamanho = CertGetNameStringW(
+                    contexto,
+                    CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    0,
+                );
+                if tamanho <= 1 {
+                    Err(anyhow::anyhow!(
+                        "não foi possível ler o publicador da assinatura"
+                    ))
+                } else {
+                    let mut nome = vec![0_u16; tamanho as usize];
+                    let lidos = CertGetNameStringW(
+                        contexto,
+                        CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                        0,
+                        std::ptr::null(),
+                        nome.as_mut_ptr(),
+                        tamanho,
+                    );
+                    let publicador =
+                        String::from_utf16_lossy(&nome[..lidos.saturating_sub(1) as usize]);
+                    if publicador.eq_ignore_ascii_case("Urban Cyber Security Inc.") {
+                        Ok(publicador)
+                    } else {
+                        Err(anyhow::anyhow!(
+                            "publicador inesperado na assinatura: {publicador}"
+                        ))
+                    }
+                }
+            }
+        };
+
+        dados.dwStateAction = WTD_STATEACTION_CLOSE;
+        let _ = WinVerifyTrust(
+            std::ptr::null_mut(),
+            &mut acao,
+            &mut dados as *mut WINTRUST_DATA as *mut std::ffi::c_void,
+        );
+
+        let publicador = resultado?;
+        crate::log::linha(&format!(
+            "assinatura Authenticode válida; publicador confirmado: {publicador}"
+        ));
+        Ok(())
+    }
 }
 
 fn ferramenta_sistema(nome: &str) -> Result<PathBuf> {
@@ -465,14 +573,90 @@ fn ferramenta_sistema(nome: &str) -> Result<PathBuf> {
 }
 
 fn executar_instalador(caminho: &Path, argumentos: &[&str]) -> Result<()> {
-    let status = Command::new(caminho)
-        .args(argumentos)
-        .status()
-        .with_context(|| format!("abrindo {}", caminho.display()))?;
+    let status = match Command::new(caminho).args(argumentos).status() {
+        Ok(status) => status,
+        #[cfg(windows)]
+        Err(erro) if erro.raw_os_error() == Some(740) => {
+            crate::log::linha(
+                "o instalador exige privilégios administrativos; solicitando elevação pelo UAC",
+            );
+            return executar_instalador_elevado(caminho, argumentos);
+        }
+        Err(erro) => return Err(erro).with_context(|| format!("abrindo {}", caminho.display())),
+    };
     if codigo_aceito(status) {
         Ok(())
     } else {
         bail!("o instalador terminou com {status}")
+    }
+}
+
+#[cfg(windows)]
+fn executar_instalador_elevado(caminho: &Path, argumentos: &[&str]) -> Result<()> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_OBJECT_0},
+        System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE},
+        UI::{
+            Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW},
+            WindowsAndMessaging::SW_SHOWNORMAL,
+        },
+    };
+
+    let verbo: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
+    let arquivo: Vec<u16> = caminho.as_os_str().encode_wide().chain(Some(0)).collect();
+    let parametros_texto = argumentos.join(" ");
+    let parametros: Vec<u16> = OsStr::new(&parametros_texto)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    // SAFETY: todos os ponteiros permanecem válidos durante ShellExecuteExW;
+    // SEE_MASK_NOCLOSEPROCESS devolve um handle que é esperado e fechado aqui.
+    unsafe {
+        let mut execucao: SHELLEXECUTEINFOW = std::mem::zeroed();
+        execucao.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        execucao.fMask = SEE_MASK_NOCLOSEPROCESS;
+        execucao.lpVerb = verbo.as_ptr();
+        execucao.lpFile = arquivo.as_ptr();
+        execucao.lpParameters = if argumentos.is_empty() {
+            std::ptr::null()
+        } else {
+            parametros.as_ptr()
+        };
+        execucao.nShow = SW_SHOWNORMAL;
+
+        if ShellExecuteExW(&mut execucao) == 0 {
+            return Err(std::io::Error::last_os_error()).with_context(|| {
+                format!(
+                    "o Windows não autorizou a instalação administrativa de {}",
+                    caminho.display()
+                )
+            });
+        }
+        if execucao.hProcess.is_null() {
+            bail!(
+                "o Windows iniciou {}, mas não devolveu o processo para acompanhamento",
+                caminho.display()
+            );
+        }
+
+        let espera = WaitForSingleObject(execucao.hProcess, INFINITE);
+        let mut codigo = u32::MAX;
+        let leu_codigo = GetExitCodeProcess(execucao.hProcess, &mut codigo) != 0;
+        let _ = CloseHandle(execucao.hProcess);
+
+        if espera != WAIT_OBJECT_0 {
+            bail!("não foi possível acompanhar o instalador elevado ({espera})");
+        }
+        if !leu_codigo {
+            return Err(std::io::Error::last_os_error())
+                .context("lendo o resultado do instalador elevado");
+        }
+        if codigo == 0 || matches!(codigo, 1641 | 3010) {
+            Ok(())
+        } else {
+            bail!("o instalador elevado terminou com o código {codigo}")
+        }
     }
 }
 

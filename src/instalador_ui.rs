@@ -475,6 +475,11 @@ impl Assistente {
     }
 
     fn tela_instalando(&mut self, ui: &mut egui::Ui) {
+        if let Some(erro) = self.erro.clone() {
+            self.tela_erro_instalacao(ui, &erro);
+            return;
+        }
+
         let fase = self
             .atualizacao
             .as_ref()
@@ -513,44 +518,73 @@ impl Assistente {
             }
         });
         ui.add_space(16.0);
+        let largura_progresso = ui.available_width();
         ui.add(
             egui::ProgressBar::new(self.progresso)
-                .desired_width(f32::INFINITY)
+                .desired_width(largura_progresso)
                 .fill(ROXO)
-                .show_percentage(),
+                .text(format!("Progresso geral: {:.0}%", self.progresso * 100.0)),
         );
-        if let Some(erro) = self.erro.clone() {
-            ui.add_space(12.0);
-            egui::Frame::new()
-                .fill(Color32::from_rgb(57, 24, 31))
-                .stroke(Stroke::new(1.0, VERMELHO))
-                .corner_radius(8)
-                .inner_margin(12)
-                .show(ui, |ui| {
-                    ui.colored_label(
-                        VERMELHO,
-                        RichText::new("A instalação não foi concluída").strong(),
-                    );
-                    ui.label(RichText::new(erro).size(12.0).color(TEXTO));
-                });
-            rodape_direita(ui, |ui| {
-                if botao_primario(ui, "Tentar novamente").clicked() {
-                    self.iniciar_instalacao();
-                }
-                if botao_secundario(ui, "Voltar aos componentes").clicked() {
-                    self.erro = None;
-                    self.tela = Tela::Componentes;
-                }
-            });
-        } else {
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(
-                    RichText::new("Acompanhando o resultado real de cada componente…")
-                        .color(SECUNDARIO),
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(
+                RichText::new("Acompanhando o resultado real de cada componente…")
+                    .color(SECUNDARIO),
+            );
+        });
+    }
+
+    fn tela_erro_instalacao(&mut self, ui: &mut egui::Ui, erro: &str) {
+        titulo(
+            ui,
+            "A instalação foi interrompida",
+            "Nenhuma conclusão é exibida até todos os componentes serem confirmados.",
+        );
+        ui.add_space(18.0);
+
+        let largura_interna = (ui.available_width() - 36.0).max(0.0);
+        egui::Frame::new()
+            .fill(Color32::from_rgb(57, 24, 31))
+            .stroke(Stroke::new(1.0, VERMELHO))
+            .corner_radius(12)
+            .inner_margin(18)
+            .show(ui, |ui| {
+                ui.set_min_width(largura_interna);
+                ui.colored_label(
+                    VERMELHO,
+                    RichText::new("Não foi possível concluir esta etapa")
+                        .size(15.0)
+                        .strong(),
                 );
+                ui.add_space(5.0);
+                egui::ScrollArea::vertical()
+                    .max_height(125.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(RichText::new(erro).size(12.0).color(TEXTO)).wrap(),
+                        );
+                    });
             });
+
+        ui.add_space(12.0);
+        ui.label(
+            RichText::new(format!(
+                "Progresso preservado em {:.0}%. Você pode corrigir a causa e tentar novamente.",
+                self.progresso * 100.0
+            ))
+            .size(12.0)
+            .color(SECUNDARIO),
+        );
+
+        if rodape_duplo(ui, "Voltar aos componentes", |ui| {
+            if botao_primario(ui, "Tentar novamente").clicked() {
+                self.iniciar_instalacao();
+            }
+        }) {
+            self.erro = None;
+            self.tela = Tela::Componentes;
         }
     }
 
@@ -820,16 +854,16 @@ fn linha_progresso(
             ui.label(RichText::new(nome).size(14.0).strong().color(TEXTO));
             ui.label(RichText::new(detalhe).size(11.0).color(SECUNDARIO));
             if estado == EstadoComponente::Baixando {
-                let valor = progresso.unwrap_or_else(|| {
-                    let tempo = ui.input(|entrada| entrada.time) as f32;
-                    0.18 + (tempo * 0.55).sin().abs() * 0.66
-                });
-                ui.add(
-                    egui::ProgressBar::new(valor)
-                        .desired_width(330.0)
-                        .desired_height(6.0)
-                        .fill(ROXO),
-                );
+                if let Some(valor) = progresso {
+                    ui.add(
+                        egui::ProgressBar::new(valor)
+                            .desired_width(330.0)
+                            .desired_height(6.0)
+                            .fill(ROXO),
+                    );
+                } else {
+                    barra_indeterminada(ui, 330.0);
+                }
             }
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| match estado {
@@ -937,6 +971,26 @@ fn desenhar_badge(ui: &mut egui::Ui, texto: &str, cor: Color32) {
         FontId::proportional(13.0),
         cor,
     );
+}
+
+fn barra_indeterminada(ui: &mut egui::Ui, largura: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(largura, 6.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 3.0, PAINEL);
+
+    let tempo = ui.input(|entrada| entrada.time) as f32;
+    let ciclo = (tempo * 0.55).fract();
+    let largura_segmento = rect.width() * 0.28;
+    let inicio = rect.left() - largura_segmento + ciclo * (rect.width() + largura_segmento * 2.0);
+    let fim = inicio + largura_segmento;
+    let inicio_visivel = inicio.max(rect.left());
+    let fim_visivel = fim.min(rect.right());
+    if fim_visivel > inicio_visivel {
+        let segmento = egui::Rect::from_min_max(
+            egui::pos2(inicio_visivel, rect.top()),
+            egui::pos2(fim_visivel, rect.bottom()),
+        );
+        ui.painter().rect_filled(segmento, 3.0, ROXO);
+    }
 }
 
 fn enviar_progresso(
