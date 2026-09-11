@@ -162,7 +162,7 @@ pub fn registrar_desinstalacao(servico: &Path, pasta: &Path) -> Result<()> {
         .context("criando a entrada de desinstalação")?;
     chave.set_value("DisplayName", &"Dorion GoLive")?;
     chave.set_value("DisplayVersion", &env!("CARGO_PKG_VERSION"))?;
-    chave.set_value("Publisher", &"Dorion GoLive contributors")?;
+    chave.set_value("Publisher", &"RedSTwix")?;
     chave.set_value("InstallLocation", &pasta.display().to_string())?;
     chave.set_value("DisplayIcon", &servico.display().to_string())?;
     chave.set_value(
