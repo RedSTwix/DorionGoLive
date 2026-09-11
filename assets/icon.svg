@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Dorion GoLive">
+  <defs>
+    <linearGradient id="purple" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a96cff"/>
+      <stop offset="1" stop-color="#7938ea"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#purple)" d="M54 25h148c17 0 29 13 29 29v124c0 17-12 29-29 29h-45l-29 28-29-28H54c-17 0-29-12-29-29V54c0-16 12-29 29-29Z"/>
+  <rect x="48" y="48" width="160" height="132" rx="38" fill="#151b2b"/>
+  <circle cx="91" cy="115" r="27" fill="#f4f7ff"/>
+  <circle cx="165" cy="115" r="27" fill="#f4f7ff"/>
+  <path stroke="#8747f4" stroke-width="10" stroke-linecap="round" d="M76 115h30M91 100v30"/>
+  <circle cx="158" cy="108" r="7" fill="#8747f4"/>
+  <circle cx="173" cy="122" r="7" fill="#8747f4"/>
+</svg>

@@ -8,8 +8,11 @@
 4. Execute `cargo test --locked`.
 5. Execute `cargo clippy --all-targets --locked -- -D warnings`.
 6. Compile com `cargo build --release --locked`.
-7. Teste o instalador em três cenários: ambos os requisitos presentes, somente
-   Dorion ausente e somente UrbanVPN ausente.
+7. Teste o instalador em quatro cenários: ambos os requisitos presentes,
+   somente Dorion ausente, somente UrbanVPN ausente e os dois ausentes.
+8. Em cada cenário, confirme que a tela final só aparece depois da redetecção
+   do executável do Dorion, das bibliotecas do UrbanVPN, do plugin habilitado e
+   da porta local do serviço.
 
 ## Eventos do workflow
 

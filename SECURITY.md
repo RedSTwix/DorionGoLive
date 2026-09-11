@@ -57,8 +57,11 @@ verificação falhar, o terceiro instalador não é executado.
 
 Releases do Dorion GoLive incluem `SHA256SUMS.txt` e atestado de procedência do
 GitHub Actions. Enquanto não houver assinatura Authenticode própria, o
-SmartScreen pode mostrar um aviso. Não contorne um alerta se o hash não
-corresponder ao arquivo oficial.
+SmartScreen pode mostrar um aviso e o Controle Inteligente de Aplicativos pode
+bloquear o executável sem oferecer uma exceção. Mudar a aparência ou o formato
+do instalador não cria reputação; isso exige assinatura de código confiável.
+Não desative proteções do Windows apenas para testar e não contorne um alerta
+se o hash não corresponder ao arquivo oficial.
 
 ## Relato de vulnerabilidade
 

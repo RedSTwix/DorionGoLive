@@ -16,9 +16,12 @@ O serviço instala os componentes, monitora o processo e os eventos nativos do
 Dorion, mantém as gerações de cada janela temporária e confirma o estado do
 adaptador `UrbanVPN`. O servidor HTTP escuta somente no loopback.
 
-O módulo `instalador.rs` também implementa o bootstrapper gráfico da release:
-detecta dependências, consulta a API oficial do Dorion, valida downloads e
-registra a remoção em Aplicativos instalados. Nenhum script externo é
+O módulo `instalador_ui.rs` implementa o assistente gráfico e mantém operações
+longas fora da thread da interface. `instalador.rs` detecta dependências em
+caminhos conhecidos, atalhos e registros de desinstalação, consulta a API
+oficial do Dorion, relata o progresso, valida downloads e redetecta cada
+componente após seu instalador terminar. A tela de conclusão depende também da
+confirmação do plugin e da porta local do serviço. Nenhum script externo é
 distribuído.
 
 ## Plugin JavaScript

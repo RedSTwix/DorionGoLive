@@ -1,6 +1,6 @@
 [package]
 name = "dorion-golive"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 description = "Libera Go Live no Dorion usando uma VPN completa somente durante a negociacao"
 license = "MIT"
@@ -8,6 +8,9 @@ build = "build.rs"
 
 [dependencies]
 anyhow = "1"
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow"] }
+fs2 = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json = "1"
 sha2 = "0.10"
 winreg = "0.52"
@@ -19,6 +22,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
 ] }
 
 [build-dependencies]

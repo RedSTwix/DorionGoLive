@@ -15,19 +15,29 @@ realmente ativa.
 
 O instalador verifica o [Dorion para Windows](https://github.com/SpikeHD/Dorion/releases)
 e o [UrbanVPN para Windows](https://www.urban-vpn.com/free-products/free-windows-vpn/).
-Quando algum estiver ausente, pede autorização, baixa do canal oficial, valida
-o arquivo e executa a instalação silenciosa. Na primeira utilização, o
-UrbanVPN ainda pode apresentar uma tela própria de configuração ou termos. A
-extensão de navegador não substitui o aplicativo UrbanVPN para Windows.
+Quando algum estiver ausente, o assistente mostra o que encontrou, baixa do
+canal oficial, valida o arquivo, acompanha a instalação e redetecta o programa
+no disco. A conclusão só é exibida depois que Dorion, UrbanVPN, plugin e serviço
+forem confirmados. Na primeira utilização, o UrbanVPN ainda pode apresentar uma
+tela própria de configuração ou termos. A extensão de navegador não substitui
+o aplicativo UrbanVPN para Windows.
 
 Veja a lista separada em [REQUISITOS.md](REQUISITOS.md), incluindo a diferença
 entre os requisitos de uso e os de compilação.
 
 ## Instalação
 
+![Assistente visual do Dorion GoLive](assets/installer-preview.png)
+
 1. Baixe `DorionGoLive-Setup.exe` na release.
-2. Abra o executável e confirme os componentes ausentes apresentados.
-3. Aceite o UAC do Windows se um requisito precisar ser instalado.
+2. Abra o executável e avance pela verificação de requisitos.
+3. Confira os componentes encontrados e os que serão instalados.
+4. Aceite o UAC do Windows se um requisito precisar de permissão elevada.
+5. Aguarde a confirmação final antes de abrir o Dorion.
+
+O assistente diferencia claramente **já instalado**, **será instalado**,
+**baixando**, **validando**, **instalando** e **concluído**. Reexecutar o setup
+faz uma nova detecção e funciona também como reparo do plugin e do serviço.
 
 O instalador copia o programa para `%LOCALAPPDATA%\DorionGoLive`, instala e
 habilita o plugin em `%USERPROFILE%\dorion\plugins`, adiciona o serviço ao
@@ -122,8 +132,10 @@ O workflow valida formatação, testes e Clippy em alterações normais. Uma tag
 - atestado de procedência do GitHub Actions.
 
 Antes de criar uma tag, confira [RELEASING.md](docs/RELEASING.md). O executável
-do Dorion GoLive não possui assinatura Authenticode; por isso o Windows pode
-exibir um aviso de reputação.
+do Dorion GoLive não possui assinatura Authenticode. O SmartScreen pode exibir
+um aviso de reputação e o Controle Inteligente de Aplicativos pode bloquear o
+arquivo por completo. A interface do instalador não altera isso: uma futura
+assinatura de código confiável é necessária para evitar esse bloqueio.
 
 ## Licença
 

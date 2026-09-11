@@ -7,6 +7,8 @@
 *.js text eol=lf
 *.yml text eol=lf
 *.cpp text eol=lf
+*.svg text eol=lf
 *.txt text eol=lf
 *.ico binary
+*.png binary
 *.exe binary

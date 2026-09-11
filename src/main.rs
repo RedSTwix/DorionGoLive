@@ -10,6 +10,7 @@ mod controle_live;
 mod discord;
 mod dorion_eventos;
 mod instalador;
+mod instalador_ui;
 mod log;
 mod plugin;
 mod processos;
@@ -105,27 +106,7 @@ fn main() -> Result<()> {
 /// depois da instalação. Abrir o arquivo sem argumentos aciona esta interface;
 /// o autostart sempre usa o argumento `rodar` e nunca entra no instalador.
 fn instalacao_interativa() -> Result<()> {
-    if !instalador::confirmar_inicio(discord::lancador().is_some(), urban::instalado()) {
-        return Ok(());
-    }
-
-    let resultado = instalador::garantir_dependencias().and_then(|_| {
-        instalar(OpcoesInstalar {
-            reiniciar_discord: true,
-            criar_run_legado: true,
-        })
-    });
-
-    match resultado {
-        Ok(()) => {
-            instalador::informar_sucesso();
-            Ok(())
-        }
-        Err(erro) => {
-            instalador::informar_erro(&format!("{erro:#}"));
-            Err(erro)
-        }
-    }
+    instalador_ui::executar()
 }
 
 fn desinstalacao_interativa() -> Result<()> {
@@ -203,11 +184,18 @@ fn instalar(opcoes: OpcoesInstalar) -> Result<()> {
         .spawn()
         .context("subindo o serviço")?;
 
+    let mut servico_pronto = false;
     for _ in 0..20 {
         if porta_ocupada(PORTA_CONTROLE) {
+            servico_pronto = true;
             break;
         }
         std::thread::sleep(Duration::from_millis(250));
+    }
+    if !servico_pronto {
+        anyhow::bail!(
+            "o serviço foi copiado, mas não começou a responder na porta local {PORTA_CONTROLE}"
+        );
     }
 
     println!("\nInstalado.\n");

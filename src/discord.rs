@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use std::{ffi::OsStr, path::PathBuf, process::Command, time::Duration};
+use winreg::{enums::*, RegKey};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -29,7 +30,10 @@ fn comando_oculto(programa: impl AsRef<OsStr>) -> Command {
 }
 
 pub fn lancador() -> Option<PathBuf> {
-    candidatos().into_iter().find(|p| p.exists())
+    candidatos()
+        .into_iter()
+        .find(|p| p.is_file())
+        .or_else(atalho)
 }
 
 /// O clique no atalho é o caminho de abertura que o usuário confirmou manter
@@ -50,11 +54,34 @@ fn candidatos_de_atalho() -> Vec<PathBuf> {
     if let Ok(base) = std::env::var("PUBLIC") {
         caminhos.push(PathBuf::from(base).join("Desktop").join("Dorion.lnk"));
     }
+    if let Ok(base) = std::env::var("APPDATA") {
+        caminhos.push(
+            PathBuf::from(base)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("Dorion.lnk"),
+        );
+    }
+    if let Ok(base) = std::env::var("ProgramData") {
+        caminhos.push(
+            PathBuf::from(base)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("Dorion.lnk"),
+        );
+    }
     caminhos
 }
 
 fn candidatos() -> Vec<PathBuf> {
     let mut caminhos = Vec::new();
+    if let Ok(base) = std::env::var("ProgramW6432") {
+        caminhos.push(PathBuf::from(base).join("Dorion").join("Dorion.exe"));
+    }
     if let Ok(base) = std::env::var("ProgramFiles") {
         caminhos.push(PathBuf::from(base).join("Dorion").join("Dorion.exe"));
     }
@@ -62,6 +89,10 @@ fn candidatos() -> Vec<PathBuf> {
         caminhos.push(PathBuf::from(base).join("Dorion").join("Dorion.exe"));
     }
     if let Ok(base) = std::env::var("LOCALAPPDATA") {
+        // O instalador NSIS oficial do Tauri usa este caminho no modo por
+        // usuário. Ele é diferente do caminho adotado por alguns gerenciadores
+        // de pacotes e precisa ser verificado diretamente.
+        caminhos.push(PathBuf::from(&base).join("Dorion").join("Dorion.exe"));
         caminhos.push(
             PathBuf::from(base)
                 .join("Programs")
@@ -69,7 +100,56 @@ fn candidatos() -> Vec<PathBuf> {
                 .join("Dorion.exe"),
         );
     }
+    caminhos.extend(candidatos_do_registro());
+    caminhos.sort_by_key(|p| p.to_string_lossy().to_ascii_lowercase());
+    caminhos.dedup_by(|a, b| {
+        a.to_string_lossy()
+            .eq_ignore_ascii_case(&b.to_string_lossy())
+    });
     caminhos
+}
+
+fn candidatos_do_registro() -> Vec<PathBuf> {
+    let mut encontrados = Vec::new();
+    for raiz in [
+        RegKey::predef(HKEY_CURRENT_USER),
+        RegKey::predef(HKEY_LOCAL_MACHINE),
+    ] {
+        for chave_base in [
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ] {
+            let Ok(base) = raiz.open_subkey_with_flags(chave_base, KEY_READ) else {
+                continue;
+            };
+            for nome in base.enum_keys().filter_map(Result::ok) {
+                let Ok(chave) = base.open_subkey_with_flags(nome, KEY_READ) else {
+                    continue;
+                };
+                let display = chave
+                    .get_value::<String, _>("DisplayName")
+                    .unwrap_or_default();
+                if !display.eq_ignore_ascii_case("Dorion") {
+                    continue;
+                }
+                if let Ok(pasta) = chave.get_value::<String, _>("InstallLocation") {
+                    encontrados.push(PathBuf::from(pasta.trim_matches('"')).join("Dorion.exe"));
+                }
+                if let Ok(icone) = chave.get_value::<String, _>("DisplayIcon") {
+                    let arquivo = icone
+                        .trim()
+                        .trim_matches('"')
+                        .split(',')
+                        .next()
+                        .unwrap_or_default();
+                    if !arquivo.is_empty() {
+                        encontrados.push(PathBuf::from(arquivo));
+                    }
+                }
+            }
+        }
+    }
+    encontrados
 }
 
 const IMAGEM: &str = "Dorion.exe";
@@ -292,11 +372,19 @@ mod tests {
     #[test]
     fn atalhos_consideram_area_do_usuario_onedrive_e_publica() {
         let _guarda = AMBIENTE.lock().unwrap();
-        let antigas =
-            ["USERPROFILE", "OneDrive", "PUBLIC"].map(|chave| (chave, std::env::var_os(chave)));
+        let antigas = [
+            "USERPROFILE",
+            "OneDrive",
+            "PUBLIC",
+            "APPDATA",
+            "ProgramData",
+        ]
+        .map(|chave| (chave, std::env::var_os(chave)));
         std::env::set_var("USERPROFILE", r"C:\Usuarios\Teste");
         std::env::set_var("OneDrive", r"C:\Usuarios\Teste\OneDrive");
         std::env::set_var("PUBLIC", r"C:\Usuarios\Publico");
+        std::env::set_var("APPDATA", r"C:\Usuarios\Teste\AppData\Roaming");
+        std::env::set_var("ProgramData", r"C:\ProgramData");
 
         assert_eq!(
             candidatos_de_atalho(),
@@ -304,6 +392,10 @@ mod tests {
                 PathBuf::from(r"C:\Usuarios\Teste\Desktop\Dorion.lnk"),
                 PathBuf::from(r"C:\Usuarios\Teste\OneDrive\Desktop\Dorion.lnk"),
                 PathBuf::from(r"C:\Usuarios\Publico\Desktop\Dorion.lnk"),
+                PathBuf::from(
+                    r"C:\Usuarios\Teste\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Dorion.lnk",
+                ),
+                PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Dorion.lnk",),
             ]
         );
 
@@ -312,6 +404,20 @@ mod tests {
                 Some(valor) => std::env::set_var(chave, valor),
                 None => std::env::remove_var(chave),
             }
+        }
+    }
+
+    #[test]
+    fn candidatos_incluem_o_destino_padrao_do_nsis() {
+        let _guarda = AMBIENTE.lock().unwrap();
+        let antiga = std::env::var_os("LOCALAPPDATA");
+        std::env::set_var("LOCALAPPDATA", r"C:\Usuarios\Teste\AppData\Local");
+        assert!(candidatos().contains(&PathBuf::from(
+            r"C:\Usuarios\Teste\AppData\Local\Dorion\Dorion.exe"
+        )));
+        match antiga {
+            Some(valor) => std::env::set_var("LOCALAPPDATA", valor),
+            None => std::env::remove_var("LOCALAPPDATA"),
         }
     }
 }
